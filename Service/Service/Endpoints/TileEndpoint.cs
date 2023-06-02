@@ -1,3 +1,6 @@
+using System.Runtime.CompilerServices;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Formatters.Binary;
 using Mapster.Common.MemoryMappedTypes;
 using Mapster.Rendering;
 using SixLabors.ImageSharp;
@@ -13,12 +16,69 @@ internal class TileEndpoint : IDisposable
     {
         _mapData = new DataFile(mapDataFilePath);
     }
+    
+    private static readonly System.Threading.Mutex? ShapesMtx = new (false);
+
+    private static PriorityQueue<BaseShape, int> _shapes = new();
+
+    private static PriorityQueue<BaseShape, int>? shapes
+    {
+        get => _shapes;
+        set => _shapes = value;
+    }
+
+    private static TileRenderer.BoundingBox _pixelBb;
 
     public void Dispose()
     {
         // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
         Dispose(disposing: true);
         GC.SuppressFinalize(this);
+    }
+
+    private static PriorityQueue<BaseShape, int> Clone(ref PriorityQueue<BaseShape, int> queue)
+    {
+        PriorityQueue<BaseShape, int> newOriginal = new();
+        PriorityQueue<BaseShape, int> copy = new();
+        while (queue.Count > 0)
+        {
+            queue.TryDequeue(out var shape, out var priority);
+            newOriginal.Enqueue(shape, priority);
+            copy.Enqueue(shape, priority);
+        }
+        queue = newOriginal;
+        return copy;
+    }
+
+    private static void MakeRequestData(double minLat, double minLon, double maxLat, double maxLon, int sizeX, int sizeY, TileEndpoint tileEndpoint)
+    {
+        ShapesMtx.WaitOne();
+        if (shapes is { Count: > 0 })
+        {
+            ShapesMtx.ReleaseMutex();
+            return;
+        }
+        _pixelBb = new TileRenderer.BoundingBox
+        {
+            MinX = float.MaxValue,
+            MinY = float.MaxValue,
+            MaxX = float.MinValue,
+            MaxY = float.MinValue
+        };
+        var tmpShapes = shapes;
+        tileEndpoint._mapData.ForeachFeature(
+            new BoundingBox(
+                new Coordinate(minLat, minLon),
+                new Coordinate(maxLat, maxLon)
+            ),
+            featureData =>
+            {
+                featureData.Tessellate(ref _pixelBb, ref tmpShapes);
+                return true;
+            }
+        );
+        shapes = tmpShapes;
+        ShapesMtx.ReleaseMutex();
     }
 
     public static void Register(WebApplication app)
@@ -28,33 +88,11 @@ internal class TileEndpoint : IDisposable
         app.MapGet("/render", HandleTileRequest);
         async Task HandleTileRequest(HttpContext context, double minLat, double minLon, double maxLat, double maxLon, int? size, TileEndpoint tileEndpoint)
         {
-            if (size == null)
-            {
-                size = 800;
-            }
-
-            var pixelBb = new TileRenderer.BoundingBox
-            {
-                MinX = float.MaxValue,
-                MinY = float.MaxValue,
-                MaxX = float.MinValue,
-                MaxY = float.MinValue
-            };
-            var shapes = new PriorityQueue<BaseShape, int>();
-            tileEndpoint._mapData.ForeachFeature(
-                new BoundingBox(
-                    new Coordinate(minLat, minLon),
-                    new Coordinate(maxLat, maxLon)
-                ),
-                featureData =>
-                {
-                    featureData.Tessellate(ref pixelBb, ref shapes);
-                    return true;
-                }
-            );
-
+            size ??= 800;
             context.Response.ContentType = "image/png";
-            await tileEndpoint.RenderPng(context.Response.BodyWriter.AsStream(), pixelBb, shapes, size.Value, size.Value);
+            MakeRequestData(minLat, minLon, maxLat, maxLon, size.Value, size.Value, tileEndpoint);
+            var sacrificeShapes = Clone(ref _shapes);
+            await tileEndpoint.RenderPng(context.Response.BodyWriter.AsStream(), _pixelBb, sacrificeShapes, size.Value, size.Value);
         }
     }
 
