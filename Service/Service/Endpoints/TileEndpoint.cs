@@ -16,16 +16,30 @@ internal class TileEndpoint : IDisposable
     {
         _mapData = new DataFile(mapDataFilePath);
     }
-    
+
     private static readonly System.Threading.Mutex? ShapesMtx = new (false);
 
     private static PriorityQueue<BaseShape, int> _shapes = new();
 
     private static PriorityQueue<BaseShape, int>? shapes
     {
-        get => _shapes;
-        set => _shapes = value;
+        get
+        {
+            lock (ShapesMtx)
+            {
+                return _shapes;
+            }
+        }
+        set
+        {
+            lock (ShapesMtx)
+            {
+                _shapes = value;
+            }
+        }
     }
+
+    private static Image<Rgba32>? _canvas = null;
 
     private static TileRenderer.BoundingBox _pixelBb;
 
@@ -52,10 +66,8 @@ internal class TileEndpoint : IDisposable
 
     private static void MakeRequestData(double minLat, double minLon, double maxLat, double maxLon, int sizeX, int sizeY, TileEndpoint tileEndpoint)
     {
-        ShapesMtx.WaitOne();
         if (shapes is { Count: > 0 })
         {
-            ShapesMtx.ReleaseMutex();
             return;
         }
         _pixelBb = new TileRenderer.BoundingBox
@@ -78,7 +90,6 @@ internal class TileEndpoint : IDisposable
             }
         );
         shapes = tmpShapes;
-        ShapesMtx.ReleaseMutex();
     }
 
     public static void Register(WebApplication app)
@@ -93,17 +104,19 @@ internal class TileEndpoint : IDisposable
             MakeRequestData(minLat, minLon, maxLat, maxLon, size.Value, size.Value, tileEndpoint);
             var sacrificeShapes = Clone(ref _shapes);
             await tileEndpoint.RenderPng(context.Response.BodyWriter.AsStream(), _pixelBb, sacrificeShapes, size.Value, size.Value);
+
         }
     }
 
     private async Task RenderPng(Stream outputStream, TileRenderer.BoundingBox boundingBox, PriorityQueue<BaseShape, int> shapes, int width, int height)
     {
-        var canvas = await Task.Run(() =>
+        if(_canvas == null)
         {
-            return shapes.Render(boundingBox, width, height);
-        }).ConfigureAwait(continueOnCapturedContext: false);
+            _canvas = await Task.Run(() => { return shapes.Render(boundingBox, width, height); })
+                .ConfigureAwait(continueOnCapturedContext: false);
+        }
 
-        await canvas.SaveAsPngAsync(outputStream).ConfigureAwait(continueOnCapturedContext: false);
+        await _canvas.SaveAsPngAsync(outputStream).ConfigureAwait(continueOnCapturedContext: false);
     }
 
     protected virtual void Dispose(bool disposing)
