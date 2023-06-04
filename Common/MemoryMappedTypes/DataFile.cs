@@ -180,7 +180,7 @@ public unsafe class DataFile : IDisposable
         GetString(stringsOffset, charsOffset, i + 1, out value);
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static ByteFeatureType StringToType(String keyString)
     {
         if (keyString.StartsWith("place")) return MapFeatureData.StringMapperType["place"];
@@ -198,7 +198,7 @@ public unsafe class DataFile : IDisposable
         return ByteFeatureType.OutOfScope;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public void ForeachFeature(BoundingBox b, MapFeatureDelegate? action)
     {
         if (action == null)
