@@ -4,6 +4,20 @@ The solution in this repository contains several projects that aim to read and e
 
 To this end the solution contains several parts that are used at different times in the lifetime of the application.
 
+## Assignment details
+The project was run using jetbrains Rider, should be simple enough to run it in either Visual Studio or Rider
+Run the service configuration first and the client configuration next
+
+As a general overview of the changes:
+The image gets cached after rendering once
+The keys for the properties are now bytes<br/>
+The values remained strings because there are too impossibly many to make enums of them too<br/>
+Not much was changed otherwise, the difftool should make the changes obvious enough to spot
+
+--------------------------------------
+--------------------------------------
+## Before assignment README below:
+
 ## General Overview
 
 ### I. Common - Library
