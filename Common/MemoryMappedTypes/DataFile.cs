@@ -244,14 +244,7 @@ public unsafe class DataFile : IDisposable
                         var keyByte = StringToType(key.ToString());
                         if(keyByte != ByteFeatureType.OutOfScope)
                         {
-                            try
-                            {
-                                properties.Add(new (keyByte, value.ToString()));
-                            }
-                            catch (ArgumentException e)
-                            {
-                                Console.WriteLine(key.ToString());
-                            }
+                            properties.Add(new (keyByte, value.ToString()));
                         }
                     }
 
